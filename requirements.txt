@@ -1,0 +1,7 @@
+truststore
+httpx
+fake-useragent
+python-dotenv
+tenacity
+pydantic
+pyyaml
