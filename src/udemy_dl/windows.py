@@ -151,4 +151,3 @@ class CourseFolderStructure:
         else:
             (new_folder / filename).write_bytes(data_or_text)
 
-
