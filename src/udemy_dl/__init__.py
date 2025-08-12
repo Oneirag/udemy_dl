@@ -9,7 +9,7 @@ truststore.inject_into_ssl()
 
 # As a default, this value is 260 chars and chapter and lessons folders are adjusted to fit in this chars
 # Use a different value if your system has no such restrictions
-UDEMY_FOLDER_CHAR_LIMIT = os.getenv("UDEMY_FOLDER_CHAR_LIMIT", 260)
+UDEMY_FOLDER_CHAR_LIMIT = int(os.getenv("UDEMY_FOLDER_CHAR_LIMIT", 260))
 
 __full_cookie = os.getenv("UDEMY_COOKIE")
 access_token = __full_cookie.split("access_token=")[1].split(";")[0]
