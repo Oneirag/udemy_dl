@@ -99,7 +99,71 @@ class UdemyDownloader:
         js = response.json()
         return js
 
-    def download_materials(self, destination: str | Path):
+    def iter_course_contents(self):
+        """Iterates on all the lectures, quizzes, practices, chapters and assets of the course"""
+        js = self.get_js(
+            f"/courses/{self.course_id}/subscriber-curriculum-items/",
+            params={
+                'curriculum_types': 'chapter,lecture,practice,quiz,role-play',
+                # Ignore quizzes
+                # 'curriculum_types': 'chapter,lecture,practice,role-play',
+                'page_size': 500,
+                'fields[lecture]': 'title,object_index,is_published,sort_order,created,asset,supplementary_assets,is_free',
+                'fields[quiz]': 'title,object_index,is_published,sort_order,type',
+                'fields[practice]': 'title,object_index,is_published,sort_order',
+                'fields[chapter]': 'title,object_index,is_published,sort_order',
+                'fields[asset]': 'title,filename,asset_type,status,time_estimation,is_external,download_urls',
+                'caching_intent': 'True'
+            }
+        )
+        for content in js['results']:
+            yield content
+
+
+    def get_lesson_description(self, lecture_id:int) -> str | None:
+        """For a given lecture_id, gets its description (if any)"""
+        asset_js = self.get_js(
+            f"/users/me/subscribed-courses/{self.course_id}/lectures/{lecture_id}/",
+            params={
+                "fields[lecture]": "asset,description,download_url,is_free,last_watched_second",
+                "fields[asset]": "asset_type,length,media_license_token,course_is_drmed,media_sources,captions,thumbnail_sprite,slides,slide_urls,download_urls,external_url,body",
+                # "q": 0.10664847299098668
+            }
+        )
+        return asset_js.get("description")
+
+
+    def get_lesson_body(self, asset: dict, lecture_id: int) -> str | None:
+        if not asset:
+            return
+        # Only articles have a body
+        if asset['asset_type'] == "Article":
+            asset_id = asset['id']
+            asset_body_js = self.get_js(url_path=f"/assets/{asset_id}/",
+                params={
+                    "fields[asset]": "@min,status,delayed_asset_message,processing_errors,body",
+                    "course_id": self.course_id,
+                    "lecture_id": lecture_id}
+            )
+            return asset_body_js.get("body")
+            # if body := asset_body_js.get("body"):
+            #     self.course_structure.chapters[-1].contents[-1].body = body
+            #     # self.folder_structure.write(idx_course, idx_chapter, idx_lesson, "body.html", body)
+            #     # print(body)
+
+
+    def mark_lecture_as_completed(self, lecture_id):
+        """Marks the given lecture as completed"""
+        completed = client.post(f"{self.API_BASE}/users/me/subscribed-courses/{self.course_id}/completed-lectures/",
+                          data=dict(downloaded=False, lecture_id=lecture_id)
+                          )
+        try:
+            completed.raise_for_status()
+        except:
+            print(f"Lesson {lecture_id} could not be marked as completed")
+
+
+    def download_materials(self, destination: str | Path, mark_as_completed: bool = False):
         destination = Path(destination)
         with tempfile.TemporaryDirectory() as temp_path:
             temp_destination = Path(temp_path)
@@ -111,28 +175,13 @@ class UdemyDownloader:
             idx_course = 0
             self.folder_structure.set_course_title(idx_course, self.course_name)
 
-            ### Gets information on all the lectures, quizs, practices, chapters and assets of the course
-            js = self.get_js(
-                f"/courses/{self.course_id}/subscriber-curriculum-items/",
-                params={
-                    # 'curriculum_types': 'chapter,lecture,practice,quiz,role-play',
-                    # Ignore quizzes
-                    'curriculum_types': 'chapter,lecture,practice,role-play',
-                    'page_size': 200,
-                    'fields[lecture]': 'title,object_index,is_published,sort_order,created,asset,supplementary_assets,is_free',
-                    'fields[quiz]': 'title,object_index,is_published,sort_order,type',
-                    'fields[practice]': 'title,object_index,is_published,sort_order',
-                    'fields[chapter]': 'title,object_index,is_published,sort_order',
-                    'fields[asset]': 'title,filename,asset_type,status,time_estimation,is_external,download_urls',
-                    'caching_intent': 'True'
-                }
-            )
             idx_chapter = 0
             idx_lesson = 0
-            for lesson in js['results']:
+            for lesson in self.iter_course_contents():
                 title = lesson['title']
                 description = lesson.get("description")
-                if lesson['_class'] == "chapter":
+                lesson_class = lesson['_class']
+                if lesson_class == "chapter":
                     idx_chapter += 1
                     chapter_name = nombre_carpeta_valido(title)
                     # print(chapter_name)
@@ -145,35 +194,17 @@ class UdemyDownloader:
                 lesson_title = nombre_carpeta_valido(title)
                 numbered_lesson_name = f"{idx_lesson:02} - {lesson_title}"
                 self.folder_structure.set_content_title(idx_course, idx_chapter, idx_lesson, numbered_lesson_name)
-                self.course_structure.chapters[-1].contents.append(UdemyLesson(lesson_name=title))
                 lecture_id = lesson['id']
-                asset_js = self.get_js(
-                    f"/users/me/subscribed-courses/{self.course_id}/lectures/{lecture_id}/",
-                    params={
-                        "fields[lecture]": "asset,description,download_url,is_free,last_watched_second",
-                        "fields[asset]": "asset_type,length,media_license_token,course_is_drmed,media_sources,captions,thumbnail_sprite,slides,slide_urls,download_urls,external_url,body",
-                        # "q": 0.10664847299098668
-                    }
-                )
-                if description := asset_js['description']:
-                    self.course_structure.chapters[-1].contents[-1].description = description
-                    print(description)
+                if mark_as_completed:
+                    self.mark_lecture_as_completed(lecture_id)
 
-                if asset := lesson.get('asset'):
-                    # Only articles have a body
-                    if asset['asset_type'] == "Article":
-                        asset_id = asset['id']
-                        asset_body_js = self.get_js(
-                            f"/assets/{asset_id}/",
-                            params={
-                                "fields[asset]": "@min,status,delayed_asset_message,processing_errors,body",
-                                "course_id": self.course_id,
-                                "lecture_id": lecture_id}
-                        )
-                        if body := asset_body_js.get("body"):
-                            self.course_structure.chapters[-1].contents[-1].body = body
-                            # self.folder_structure.write(idx_course, idx_chapter, idx_lesson, "body.html", body)
-                            # print(body)
+                if lesson_class != "quiz":
+                    # Quizzes don't have a description
+                    lecture_description = self.get_lesson_description(lecture_id=lecture_id)
+                    body = self.get_lesson_body(lesson.get("asset"), lecture_id)
+                    self.course_structure.chapters[-1].contents.append(UdemyLesson(lesson_name=title,
+                                                                                   description=lecture_description,
+                                                                                   body=body))
 
                 # Now let's get the additional resources (downloadable)
                 if supplementary_assets := lesson.get('supplementary_assets'):
@@ -190,8 +221,10 @@ class UdemyDownloader:
                             self.folder_structure.write(idx_course, idx_chapter, idx_lesson, filename, dl.content)
                             # self.write_bytes(filename, dl.content)
                             # (self.get_dest_dir() / filename).write_bytes(dl.content)
+
             self.folder_structure.write(idx_course, None, None, "contents.json",
                                         self.course_structure.model_dump_json(indent=4, exclude_none=True))
+
 
             # Moverlo todo a la carpeta de destino final
 
@@ -222,4 +255,4 @@ if __name__ == '__main__':
                 continue
             # print(UdemyDownloader(url).get_course_id())
             downloader = UdemyDownloader(url)
-            downloader.download_materials(destination_folder)
+            downloader.download_materials(destination_folder, mark_as_completed=True)
