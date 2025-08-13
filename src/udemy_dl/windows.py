@@ -147,7 +147,7 @@ class CourseFolderStructure:
         if not new_folder.exists():
             new_folder.mkdir(exist_ok=True, parents=True)
         if isinstance(data_or_text, str):
-            (new_folder / filename).write_text(data_or_text)
+            (new_folder / filename).write_text(data_or_text, encoding="utf-8")
         else:
             (new_folder / filename).write_bytes(data_or_text)
 

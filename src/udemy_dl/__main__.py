@@ -154,10 +154,10 @@ class UdemyDownloader:
 
     def mark_lecture_as_completed(self, lecture_id):
         """Marks the given lecture as completed"""
-        completed = client.post(f"{self.API_BASE}/users/me/subscribed-courses/{self.course_id}/completed-lectures/",
-                          data=dict(downloaded=False, lecture_id=lecture_id)
-                          )
         try:
+            completed = client.post(f"{self.API_BASE}/users/me/subscribed-courses/{self.course_id}/completed-lectures/",
+                              data=dict(downloaded=False, lecture_id=lecture_id)
+                              )
             completed.raise_for_status()
         except:
             print(f"Lesson {lecture_id} could not be marked as completed")
